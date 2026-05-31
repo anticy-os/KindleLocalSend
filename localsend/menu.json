@@ -1,0 +1,18 @@
+{
+  "items": [
+    {
+      "name": "LocalSend",
+      "priority": 50,
+      "items": [
+        {
+          "name": "Start Server",
+          "action": "sh /mnt/us/extensions/localsend/run.sh start"
+        },
+        {
+          "name": "Stop Server",
+          "action": "sh /mnt/us/extensions/localsend/run.sh stop"
+        }
+      ]
+    }
+  ]
+}
