@@ -1,6 +1,8 @@
 # LocalSend Kindle
 
-A small Go-based LocalSend receiver for Kindle devices. 
+A small Go-based LocalSend receiver for Kindle devices.
+
+Tested only on Kindle Oasis 8th gen.
 
 ## Requirements
 
