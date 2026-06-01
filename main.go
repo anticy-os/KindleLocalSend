@@ -178,6 +178,12 @@ func handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
 func handleUpload(w http.ResponseWriter, r *http.Request) {
 	fileId := r.URL.Query().Get("fileId")
 	fileName := sessionFiles[fileId]
+	isNameTaken := fileExists(SavePath + "/" + fileName)
+	if isNameTaken {
+		fileName = fixNameConflict(SavePath + "/" + fileName)
+		parts := strings.Split(fileName, "/")
+		fileName = parts[len(parts)-1]
+	}
 	if fileName == "" {
 		fileName = r.URL.Query().Get("fileName")
 	}
@@ -207,4 +213,26 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	printScreen("saved " + fileName)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"success"}`))
+}
+
+func fileExists(path string) bool {
+	if _, err := os.Stat(path); err == nil {
+		return true
+	}
+	return false
+}
+
+func fixNameConflict(filePath string) string {
+	ext := ""
+	if idx := strings.LastIndex(filePath, "."); idx != -1 {
+		ext = filePath[idx:]
+		filePath = filePath[:idx]
+	}
+
+	for i := 1; ; i++ {
+		newPath := fmt.Sprintf("%s(%d)%s", filePath, i, ext)
+		if !fileExists(newPath) {
+			return newPath
+		}
+	}
 }
