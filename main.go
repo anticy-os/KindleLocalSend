@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	petname "github.com/dustinkirkland/golang-petname"
@@ -54,6 +56,9 @@ type PrepareUploadRequest struct {
 }
 
 var (
+	sessionPending    int
+	sessionMu         sync.Mutex
+	sessionBusy       bool
 	deviceAlias       = strings.Title(petname.Generate(2, " "))
 	deviceFingerprint = petname.Generate(5, "-")
 	sessionFiles      = map[string]string{}
@@ -66,6 +71,9 @@ func printScreen(msg string) {
 }
 
 func main() {
+	if !acquireLock() {
+		return
+	}
 	go startUDPListener()
 
 	http.HandleFunc("/api/localsend/v2/register", handleRegister)
@@ -156,8 +164,20 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
+	sessionMu.Lock()
+	if sessionBusy {
+		sessionMu.Unlock()
+		http.Error(w, `{"message":"busy"}`, http.StatusServiceUnavailable)
+		return
+	}
+	sessionBusy = true
+	sessionMu.Unlock()
+
 	var req PrepareUploadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sessionMu.Lock()
+		sessionBusy = false
+		sessionMu.Unlock()
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -167,6 +187,10 @@ func handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
 		tokens[id] = id
 		sessionFiles[id] = f.FileName
 	}
+
+	sessionMu.Lock()
+	sessionPending = len(req.Files)
+	sessionMu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -210,6 +234,14 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sessionMu.Lock()
+	sessionPending--
+	if sessionPending <= 0 {
+		sessionBusy = false
+		sessionFiles = map[string]string{}
+	}
+	sessionMu.Unlock()
+
 	printScreen("saved " + fileName)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"success"}`))
@@ -235,4 +267,21 @@ func fixNameConflict(filePath string) string {
 			return newPath
 		}
 	}
+}
+
+func acquireLock() bool {
+	lockFile := "/tmp/localsend-lock.lock"
+	f, err := os.OpenFile(lockFile, os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
+		return false
+	}
+
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err != nil {
+		f.Close()
+		printScreen("server is already running")
+		return false
+	}
+
+	return true
 }
